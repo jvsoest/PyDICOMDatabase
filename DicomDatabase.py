@@ -30,11 +30,11 @@ class DicomDatabase:
         return self.patient.keys()
     
     def doesPatientExist(self, patientId):
-        return self.patient.has_key(patientId)
+        return patientId in self.patient
 
 class Patient:
     def __init__(self):
-        self.ct = dict()
+        self.scan = dict()
         self.rtstruct = dict()
 
     def addFile(self, filePath, dcmHeader):
@@ -42,44 +42,53 @@ class Patient:
         sopInstanceUid = dcmHeader[0x8,0x18].value
         seriesInstanceUid = dcmHeader[0x20,0xe].value
         if(modality == "CT") or (modality == "PT") or (modality == 'MR'):
-            if not (seriesInstanceUid in self.ct):
-                self.ct[seriesInstanceUid] = CT()
-            myCT = self.ct[seriesInstanceUid]
+            if not (seriesInstanceUid in self.scan):
+                self.scan[seriesInstanceUid] = ScanSeries()
+            myCT = self.scan[seriesInstanceUid]
             myCT.addCtSlice(filePath)
         if(modality == "RTSTRUCT"):
             struct = RTStruct(filePath)
             self.rtstruct[sopInstanceUid] = struct
     
     def countCTScans(self):
-        return len(self.ct)
+        return len(self.scan)
     def countRTStructs(self):
         return len(self.rtstruct)
     
-    def getCTScan(self, seriesInstanceUid):
+    def getScan(self, seriesInstanceUid):
         if seriesInstanceUid is not None:
-            if self.doesCTExist(seriesInstanceUid):
-                return self.ct[seriesInstanceUid]
+            if self.doesScanExist(seriesInstanceUid):
+                return self.scan[seriesInstanceUid]
         return None
     def getRTStruct(self, sopInstanceUid):
         return self.rtstruct[sopInstanceUid]
     
-    def getCTScans(self):
-        return self.ct.keys()
+    def getScans(self):
+        return self.scan.keys()
     def getRTStructs(self):
         return self.rtstruct.keys()
     
-    def doesCTExist(self, seriesInstanceUid):
-        return self.ct.has_key(seriesInstanceUid)
+    def doesScanExist(self, seriesInstanceUid):
+        return seriesInstanceUid in self.scan
     def doesRTStructExist(self, sopInstanceUid):
-        return self.rtstruct.has_key(sopInstanceUid)
+        return sopInstanceUid in self.rtstruct
     
-    def getCTForRTStruct(self, rtStruct):
-        if rtStruct.getReferencedCTUID() is not None:
-            return self.getCTScan(rtStruct.getReferencedCTUID())
+    def getScanForRTStruct(self, rtStruct):
+        if rtStruct.getReferencedScanUID() is not None:
+            return self.getScan(rtStruct.getReferencedScanUID())
         else:
             return None
+    def getRTStructsForScan(self, seriesUID):
+        # As the RTStruct points to the CT, there is no direct way of knowing, hence, we need to check for all RTStructs if they are related to a scan.
+        # This also means that one CT might have multiple RTStructs, hence this function returns a lit of RTStruct SOP instance UIDs.
+        rtStructUIDs = list()
+        for rtStructUID in self.getRTStructs():
+            rtStruct = self.getRTStruct(rtStructUID)
+            if rtStruct.getReferencedScanUID() == seriesUID:
+                rtStructUIDs.append(rtStructUID)
+        return rtStructUIDs
 
-class CT:
+class ScanSeries:
     def __init__(self):
         self.filePath = list()
     def addCtSlice(self, filePath):
@@ -96,7 +105,7 @@ class RTStruct:
         self.filePath = filePath
     def getHeader(self):
         return pydicom.dcmread(self.filePath)
-    def getReferencedCTUID(self):
+    def getReferencedScanUID(self):
         dcmHeader = self.getHeader()
         if len(list(dcmHeader[0x3006,0x10])) > 0:
             refFrameOfRef = (dcmHeader[0x3006,0x10])[0]
